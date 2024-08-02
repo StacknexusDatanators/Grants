@@ -5,6 +5,10 @@ from typing import List, Dict
 import ollama
 import ast
 
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"]="/Users/astrobalaji/Documents/stacknexus/grants/notebook/creds/grant01-joby.json"
+
+
+
 app = FastAPI()
 
 # If you already have a Document AI Processor in your project, assign the full processor resource name here.
@@ -81,7 +85,7 @@ def parse_aadhaar_info(extracted_text: str) -> dict:
     try:
         aadhaar_info = ast.literal_eval(response['message']['content'])
     except (SyntaxError, ValueError) as e:
-        aadhaar_info = {"error": "Failed to parse Aadhaar information"}
+        aadhaar_info = {"error": e}
 
     return aadhaar_info
 
@@ -103,6 +107,47 @@ async def process_aadhaar(file: UploadFile = File(...)):
         os.remove(file_path)
 
         return aadhaar_info
+    else:
+        return {"error": "Failed to process the document"}
+
+def parse_income_cert(extracted_text:str):
+    prompt_template = """
+        [Requirement] for the content that follows, which was extracted from an application form that was scanned. In addition to the applicant's name, which is a character with spaces between it, the date of birth is a variable character,  the mobile number with 10 digit number with spaces between it, the Adhaar number is a 12-digit number with spaces between it, and the ration card number is also a character. Please provide me with the following information in the JSON structure. 
+        [json_structure] {{"Applicant Name":---, "Father_Husband_Name":---, "Date_of_birth":---  "Adhaar_Number":---  "Mobile_number":---  "Ration_card:---}}
+        [content] {0}
+    """
+    response = ollama.chat(model='llama3', messages=[
+        {
+            'role': 'user',
+            'content': prompt_template.format(extracted_text),
+        },
+    ], format="json")
+    # Safely evaluate the response content to convert it to a dictionary
+    try:
+        inc_info = ast.literal_eval(response['message']['content'])
+    except (SyntaxError, ValueError) as e:
+        inc_info = {"error": "Failed to parse income information"}
+
+    return inc_info 
+
+@app.post("/process-income-cert/")
+async def process_inc(file: UploadFile = File(...)):
+    file_path = f"/tmp/{file.filename}"
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+
+    document = process_document(processor_name, file_path=file_path)
+
+    if document:
+        extracted_text = document.text
+
+        # Parse Aadhaar information
+        inc_info = parse_income_cert(extracted_text)
+
+        # Remove the temporary file
+        os.remove(file_path)
+
+        return inc_info
     else:
         return {"error": "Failed to process the document"}
 
